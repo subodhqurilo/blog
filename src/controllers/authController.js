@@ -1,7 +1,9 @@
 import User from "../models/user.js";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 /**
  * ADMIN LOGIN
  * Sirf wahi login kar payega jiska role 'admin' hai.
@@ -60,60 +62,104 @@ export const login = async (req, res) => {
  */
 export const requestAdminOTP = async (req, res) => {
   try {
+    console.log("🔥 requestAdminOTP HIT");
+    console.log("📥 Request body:", req.body);
+
     const { email } = req.body;
+
+    if (!email) {
+      console.warn("⚠️ Email missing");
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    console.log("🔍 Finding admin with email:", email);
+
     const user = await User.findOne({ email, role: "admin" });
 
     if (!user) {
+      console.warn("❌ Admin email not found:", email);
       return res
         .status(404)
         .json({ success: false, message: "Admin email not found" });
     }
 
+    console.log("✅ Admin found:", user._id.toString());
+
     // ✅ 6-digit OTP (same as your code)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    console.log("🔐 Generated OTP:", otp);
+
     user.otp = otp;
     user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
     await user.save();
 
-    // 🚀 RESPONSE FIRST (this avoids Render timeout)
+    console.log("💾 OTP saved in DB");
+
+    // 🚀 RESPONSE FIRST (Render-safe)
     res.json({
       success: true,
       message: "OTP sent to your registered email address",
-      otp: otp // ⚠️ testing only
+      otp, // ⚠️ testing only (remove in prod)
     });
 
-    // 🔥 EMAIL BACKGROUND ME (NO await)
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    console.log("📤 Response sent to client");
 
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: "Admin Verification OTP - Blog Builder",
-      text: `Hello Admin, your verification code is: ${otp}. This code is valid for 10 minutes.`,
-    };
+    // 🔥 SENDGRID EMAIL (BACKGROUND)
+    try {
+      console.log("📧 Preparing SendGrid email…");
+      console.log(
+        "🔑 SendGrid env check:",
+        "KEY exists:", !!process.env.SENDGRID_API_KEY,
+        "FROM:", process.env.SENDGRID_FROM_EMAIL
+      );
 
-    transporter
-      .sendMail(mailOptions)
-      .then(() => console.log("✅ OTP email sent"))
-      .catch(async (err) => {
-        console.error("❌ OTP email failed:", err.message);
+      const msg = {
+        to: email, // dynamic receiver
+        from: process.env.SENDGRID_FROM_EMAIL, // verified single sender
+        subject: "Admin Verification OTP - Blog Builder",
+        html: `
+          <h3>Admin OTP Verification</h3>
+          <p>Your verification code is:</p>
+          <h2>${otp}</h2>
+          <p>This code is valid for 10 minutes.</p>
+        `,
+      };
 
-        // optional cleanup
-        user.otp = undefined;
-        user.otpExpires = undefined;
-        await user.save();
-      });
+      sgMail
+        .send(msg)
+        .then((response) => {
+          console.log("✅ OTP email sent via SendGrid");
+          console.log(
+            "📨 SendGrid status:",
+            response?.[0]?.statusCode
+          ); // should be 202
+        })
+        .catch(async (err) => {
+          console.error(
+            "❌ SendGrid email failed:",
+            err.response?.body || err.message
+          );
+
+          // optional cleanup
+          user.otp = undefined;
+          user.otpExpires = undefined;
+          await user.save();
+          console.log("↩️ OTP rolled back due to email failure");
+        });
+
+    } catch (mailErr) {
+      console.error("❌ SendGrid background error:", mailErr.message);
+    }
 
   } catch (error) {
+    console.error("❌ requestAdminOTP error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 
 
