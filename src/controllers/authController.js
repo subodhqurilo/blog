@@ -64,16 +64,25 @@ export const requestAdminOTP = async (req, res) => {
     const user = await User.findOne({ email, role: "admin" });
 
     if (!user) {
-      return res.status(404).json({ success: false, message: "Admin email not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Admin email not found" });
     }
 
-    // 6-digit random OTP generate karna
+    // ✅ 6-digit OTP (same as your code)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.otp = otp;
-    user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes valid
+    user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
     await user.save();
 
-    // Nodemailer setup
+    // 🚀 RESPONSE FIRST (this avoids Render timeout)
+    res.json({
+      success: true,
+      message: "OTP sent to your registered email address",
+      otp: otp // ⚠️ testing only
+    });
+
+    // 🔥 EMAIL BACKGROUND ME (NO await)
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -89,19 +98,23 @@ export const requestAdminOTP = async (req, res) => {
       text: `Hello Admin, your verification code is: ${otp}. This code is valid for 10 minutes.`,
     };
 
-    // Email bhejna (Background mein chalta rahega)
-    await transporter.sendMail(mailOptions);
+    transporter
+      .sendMail(mailOptions)
+      .then(() => console.log("✅ OTP email sent"))
+      .catch(async (err) => {
+        console.error("❌ OTP email failed:", err.message);
 
-    // 🔥 Response mein OTP bhej rahe hain
-    res.json({
-      success: true,
-      message: "OTP sent to your registered email address",
-      otp: otp // Ab ye aapko Postman mein dikhega
-    });
+        // optional cleanup
+        user.otp = undefined;
+        user.otpExpires = undefined;
+        await user.save();
+      });
+
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 
 
