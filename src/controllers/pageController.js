@@ -1,143 +1,56 @@
 // ========================================
 // FILE: src/controllers/pageController.js
-// Complete Page/Blog Controller with All Operations
+// COMPLETE PAGE / BLOG CONTROLLER (FINAL)
 // ========================================
 
 import Page from "../models/page.js";
+import Like from "../models/like.js";
+import Comment from "../models/comment.js";
+import { saveVersion } from "./pageVersionController.js";
 
-// ========================================
-// CREATE BLOG (DRAFT)
-// ========================================
+/* =====================================================
+   CREATE PAGE (DRAFT)
+   POST /api/pages
+===================================================== */
 export const createPage = async (req, res) => {
   try {
-    const { 
-      slug, 
-      title = "", 
-      blocks = [], 
-      metaDescription,
+    const {
+      slug,
+      title,
+      blocks = [],
       metaTitle,
+      metaDescription,
       metaKeywords,
       ogImage,
       featuredImage,
-      category, 
-      tags 
     } = req.body;
 
-    // Validate required fields
-    if (!slug) {
+    if (!slug || !title) {
       return res.status(400).json({
         success: false,
-        message: "Slug is required",
+        message: "Slug and Title are required",
       });
     }
 
-    if (!title) {
-      return res.status(400).json({
-        success: false,
-        message: "Title is required",
-      });
-    }
-
-    // Create new page
     const page = await Page.create({
       slug,
       title,
       blocks,
-      metaDescription,
       metaTitle,
+      metaDescription,
       metaKeywords,
       ogImage,
       featuredImage,
-      category,
-      tags,
       status: "draft",
-      author: req.user?.userId // If auth is enabled
+      author: req.user?.userId || null,
     });
-
-    // Populate relations
-    await page.populate('category', 'name slug color');
-    await page.populate('tags', 'name slug');
 
     res.status(201).json({
       success: true,
-      message: "Blog created successfully (draft)",
+      message: "Page created (Draft)",
       data: page,
     });
   } catch (error) {
-    // Handle duplicate slug error
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: "Slug already exists. Please use a different slug",
-      });
-    }
-
-    console.error("Create Page Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ========================================
-// UPDATE BLOG (AUTO-SAVE / EDIT)
-// ========================================
-export const updatePage = async (req, res) => {
-  try {
-    const { 
-      blocks, 
-      title, 
-      metaDescription,
-      metaTitle,
-      metaKeywords,
-      ogImage,
-      featuredImage, 
-      category, 
-      tags,
-      slug
-    } = req.body;
-
-    // Build update object dynamically
-    const updateData = {};
-    if (blocks !== undefined) updateData.blocks = blocks;
-    if (title) updateData.title = title;
-    if (slug) updateData.slug = slug;
-    if (metaDescription !== undefined) updateData.metaDescription = metaDescription;
-    if (metaTitle !== undefined) updateData.metaTitle = metaTitle;
-    if (metaKeywords !== undefined) updateData.metaKeywords = metaKeywords;
-    if (ogImage !== undefined) updateData.ogImage = ogImage;
-    if (featuredImage !== undefined) updateData.featuredImage = featuredImage;
-    if (category !== undefined) updateData.category = category;
-    if (tags !== undefined) updateData.tags = tags;
-
-    // Update page
-    const page = await Page.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { 
-        new: true, 
-        runValidators: true 
-      }
-    )
-      .populate('category', 'name slug color')
-      .populate('tags', 'name slug')
-      .populate('author', 'name email');
-
-    if (!page) {
-      return res.status(404).json({
-        success: false,
-        message: "Blog not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Blog updated successfully",
-      data: page,
-    });
-  } catch (error) {
-    // Handle duplicate slug error
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -145,7 +58,6 @@ export const updatePage = async (req, res) => {
       });
     }
 
-    console.error("Update Page Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -153,20 +65,78 @@ export const updatePage = async (req, res) => {
   }
 };
 
-// ========================================
-// GET BLOG BY ID (FOR EDITING)
-// ========================================
-export const getBlogById = async (req, res) => {
+/* =====================================================
+   UPDATE PAGE (AUTO SAVE / EDIT)
+   PUT /api/pages/:id
+===================================================== */
+export const updatePage = async (req, res) => {
   try {
-    const page = await Page.findById(req.params.id)
-      .populate('category', 'name slug color description image')
-      .populate('tags', 'name slug')
-      .populate('author', 'name email avatar');
+    const pageId = req.params.id;
+
+    const updateData = {};
+    const allowedFields = [
+      "slug",
+      "title",
+      "blocks",
+      "metaTitle",
+      "metaDescription",
+      "metaKeywords",
+      "ogImage",
+      "featuredImage",
+    ];
+
+    allowedFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    const page = await Page.findByIdAndUpdate(
+      pageId,
+      updateData,
+      { new: true, runValidators: true }
+    );
 
     if (!page) {
       return res.status(404).json({
         success: false,
-        message: "Blog not found",
+        message: "Page not found",
+      });
+    }
+
+    // 🔥 Save version snapshot (autosave)
+    if (req.body.blocks) {
+      await saveVersion(page._id, page.blocks, req.user?.userId || null);
+    }
+
+    res.json({
+      success: true,
+      message: "Page updated successfully",
+      data: page,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/* =====================================================
+   GET PAGE BY ID (ADMIN EDIT)
+   GET /api/pages/:id
+===================================================== */
+export const getBlogById = async (req, res) => {
+  try {
+    const page = await Page.findById(req.params.id).populate(
+      "author",
+      "name email avatar"
+    );
+
+    if (!page) {
+      return res.status(404).json({
+        success: false,
+        message: "Page not found",
       });
     }
 
@@ -175,7 +145,6 @@ export const getBlogById = async (req, res) => {
       data: page,
     });
   } catch (error) {
-    console.error("Get Blog Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -183,74 +152,51 @@ export const getBlogById = async (req, res) => {
   }
 };
 
-// ========================================
-// LIST BLOGS (ADMIN DASHBOARD)
-// With Filters, Search & Pagination
-// ========================================
+/* =====================================================
+   LIST PAGES (ADMIN)
+   GET /api/pages
+===================================================== */
 export const listBlogs = async (req, res) => {
   try {
-    const { 
-      status, 
-      category,
-      tags,
-      search, 
-      page = 1, 
+    const {
+      status,
+      search,
+      page = 1,
       limit = 10,
-      sortBy = 'createdAt',
-      order = 'desc',
-      author
+      sortBy = "createdAt",
+      order = "desc",
     } = req.query;
 
-    // Build filter query
     const filter = {};
-    
     if (status) filter.status = status;
-    if (category) filter.category = category;
-    if (author) filter.author = author;
-    
-    // Tags filter (can filter by multiple tags)
-    if (tags) {
-      const tagArray = tags.split(',').map(tag => tag.trim());
-      filter.tags = { $in: tagArray };
-    }
-    
-    // Search in title, slug, and meta description
+
     if (search) {
       filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { slug: { $regex: search, $options: 'i' } },
-        { metaDescription: { $regex: search, $options: 'i' } }
+        { title: { $regex: search, $options: "i" } },
+        { slug: { $regex: search, $options: "i" } },
       ];
     }
 
-    // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const sortOrder = order === 'asc' ? 1 : -1;
+    const skip = (page - 1) * limit;
+    const sortOrder = order === "asc" ? 1 : -1;
 
-    // Query with all filters
-    const blogs = await Page.find(filter)
-      .populate('category', 'name slug color')
-      .populate('tags', 'name slug')
-      .populate('author', 'name email')
-      .select("title slug status createdAt updatedAt publishedAt scheduledAt views featuredImage category tags author")
+    const pages = await Page.find(filter)
+      .populate("author", "name email")
       .sort({ [sortBy]: sortOrder })
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(Number(limit));
 
-    // Total count for pagination
     const total = await Page.countDocuments(filter);
 
     res.json({
       success: true,
-      count: blogs.length,
+      count: pages.length,
       total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
-      data: blogs,
+      page: Number(page),
+      totalPages: Math.ceil(total / limit),
+      data: pages,
     });
   } catch (error) {
-    console.error("List Blogs Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -258,9 +204,10 @@ export const listBlogs = async (req, res) => {
   }
 };
 
-// ========================================
-// PUBLISH BLOG
-// ========================================
+/* =====================================================
+   PUBLISH PAGE
+   PUT /api/pages/:id/publish
+===================================================== */
 export const publishPage = async (req, res) => {
   try {
     const page = await Page.findById(req.params.id);
@@ -268,30 +215,18 @@ export const publishPage = async (req, res) => {
     if (!page) {
       return res.status(404).json({
         success: false,
-        message: "Blog not found",
+        message: "Page not found",
       });
     }
 
-    // Use model's publish method
     await page.publish();
-
-    // Clear scheduled date if it was scheduled
-    if (page.scheduledAt) {
-      page.scheduledAt = null;
-      await page.save();
-    }
-
-    // Populate relations
-    await page.populate('category', 'name slug');
-    await page.populate('tags', 'name slug');
 
     res.json({
       success: true,
-      message: "Blog published successfully",
+      message: "Page published successfully",
       data: page,
     });
   } catch (error) {
-    console.error("Publish Blog Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -299,36 +234,23 @@ export const publishPage = async (req, res) => {
   }
 };
 
-// ========================================
-// UNPUBLISH BLOG (MOVE TO DRAFT)
-// ========================================
+/* =====================================================
+   UNPUBLISH PAGE
+===================================================== */
 export const unpublishPage = async (req, res) => {
   try {
     const page = await Page.findByIdAndUpdate(
       req.params.id,
-      { 
-        status: "draft",
-        publishedAt: null
-      },
+      { status: "draft", publishedAt: null },
       { new: true }
-    )
-      .populate('category', 'name slug')
-      .populate('tags', 'name slug');
-
-    if (!page) {
-      return res.status(404).json({
-        success: false,
-        message: "Blog not found",
-      });
-    }
+    );
 
     res.json({
       success: true,
-      message: "Blog moved to draft successfully",
+      message: "Page moved to draft",
       data: page,
     });
   } catch (error) {
-    console.error("Unpublish Blog Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -336,9 +258,9 @@ export const unpublishPage = async (req, res) => {
   }
 };
 
-// ========================================
-// DELETE BLOG
-// ========================================
+/* =====================================================
+   DELETE PAGE
+===================================================== */
 export const deletePage = async (req, res) => {
   try {
     const page = await Page.findByIdAndDelete(req.params.id);
@@ -346,24 +268,18 @@ export const deletePage = async (req, res) => {
     if (!page) {
       return res.status(404).json({
         success: false,
-        message: "Blog not found",
+        message: "Page not found",
       });
     }
 
-    // TODO: Delete associated uploaded images if needed
-    // This would require tracking which images are used in blocks
+    await Comment.deleteMany({ post: page._id });
+    await Like.deleteMany({ post: page._id });
 
     res.json({
       success: true,
-      message: "Blog deleted successfully",
-      data: { 
-        id: req.params.id,
-        title: page.title,
-        slug: page.slug
-      },
+      message: "Page deleted successfully",
     });
   } catch (error) {
-    console.error("Delete Blog Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -371,280 +287,150 @@ export const deletePage = async (req, res) => {
   }
 };
 
-// ========================================
-// GET PUBLIC BLOG (BY SLUG)
-// For Frontend Display - Increments Views
-// ========================================
+/* =====================================================
+   PUBLIC BLOG (VIEW + COUNTS)
+   GET /api/pages/public/:slug
+===================================================== */
 export const getPublicBlog = async (req, res) => {
   try {
     const page = await Page.findOne({
       slug: req.params.slug,
       status: "published",
-    })
-      .populate('category', 'name slug color description')
-      .populate('tags', 'name slug')
-      .populate('author', 'name email avatar');
+    }).populate("author", "name avatar");
 
     if (!page) {
       return res.status(404).json({
         success: false,
-        message: "Blog not found or not published",
-      });
-    }
-
-    // Increment view count asynchronously (don't wait)
-    page.incrementViews().catch(err => 
-      console.error('View increment error:', err)
-    );
-
-    res.json({
-      success: true,
-      data: page,
-    });
-  } catch (error) {
-    console.error("Get Public Blog Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ========================================
-// GET ALL PUBLISHED BLOGS (PUBLIC LIST)
-// For Frontend Blog Listing Page
-// ========================================
-export const getPublishedBlogs = async (req, res) => {
-  try {
-    const { 
-      page = 1, 
-      limit = 10,
-      category,
-      tags,
-      search,
-      sortBy = 'publishedAt',
-      order = 'desc'
-    } = req.query;
-
-    // Build filter
-    const filter = { status: 'published' };
-    
-    if (category) filter.category = category;
-    
-    if (tags) {
-      const tagArray = tags.split(',').map(tag => tag.trim());
-      filter.tags = { $in: tagArray };
-    }
-    
-    if (search) {
-      filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { metaDescription: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const sortOrder = order === 'asc' ? 1 : -1;
-
-    const blogs = await Page.find(filter)
-      .populate('category', 'name slug color')
-      .populate('tags', 'name slug')
-      .populate('author', 'name avatar')
-      .select("title slug metaDescription publishedAt featuredImage views category tags author")
-      .sort({ [sortBy]: sortOrder })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await Page.countDocuments(filter);
-
-    res.json({
-      success: true,
-      count: blogs.length,
-      total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
-      data: blogs,
-    });
-  } catch (error) {
-    console.error("Get Published Blogs Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ========================================
-// DUPLICATE BLOG
-// ========================================
-export const duplicatePage = async (req, res) => {
-  try {
-    const originalPage = await Page.findById(req.params.id);
-
-    if (!originalPage) {
-      return res.status(404).json({
-        success: false,
+        data: null,
         message: "Blog not found",
       });
     }
 
-    // Create duplicate with unique slug
-    const timestamp = Date.now();
-    const duplicate = await Page.create({
-      slug: `${originalPage.slug}-copy-${timestamp}`,
-      title: `${originalPage.title} (Copy)`,
-      blocks: originalPage.blocks,
-      metaDescription: originalPage.metaDescription,
-      metaTitle: originalPage.metaTitle,
-      metaKeywords: originalPage.metaKeywords,
-      featuredImage: originalPage.featuredImage,
-      ogImage: originalPage.ogImage,
-      category: originalPage.category,
-      tags: originalPage.tags,
-      status: 'draft',
-      author: req.user?.userId || originalPage.author
+    const cookieKey = `viewed_${page._id}`;
+    if (!req.cookies?.[cookieKey] && page.incrementViews) {
+      await page.incrementViews();
+      res.cookie(cookieKey, true, { maxAge: 3600000, httpOnly: true });
+    }
+
+    const likesCount =
+      typeof Like?.countDocuments === "function"
+        ? await Like.countDocuments({ post: page._id })
+        : 0;
+
+    const commentsCount =
+      typeof Comment?.countDocuments === "function"
+        ? await Comment.countDocuments({ post: page._id, isDeleted: false })
+        : 0;
+
+    res.json({
+      success: true,
+      data: {
+        ...page.toObject(),
+        likesCount,
+        commentsCount,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      data: null,
+      message: error.message,
+    });
+  }
+};
+
+/* =====================================================
+   PUBLIC BLOG LIST
+===================================================== */
+export const getPublishedBlogs = async (req, res) => {
+  try {
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const blogs = await Page.find({ status: "published" })
+      .select("title slug featuredImage publishedAt views")
+      .sort({ publishedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(); // 🔥 VERY IMPORTANT
+
+    // 🔒 Hard safety
+    const safeBlogs = Array.isArray(blogs) ? blogs : [];
+
+    return res.status(200).json({
+      success: true,
+      count: safeBlogs.length,
+      data: safeBlogs,
     });
 
-    // Populate relations
-    await duplicate.populate('category', 'name slug');
-    await duplicate.populate('tags', 'name slug');
+  } catch (error) {
+    console.error("getPublishedBlogs error:", error);
+
+    // 🔥 NEVER send failing structure to public list
+    return res.status(200).json({
+      success: true,
+      count: 0,
+      data: [], // always array
+    });
+  }
+};
+
+
+
+/* =====================================================
+   DUPLICATE PAGE
+===================================================== */
+export const duplicatePage = async (req, res) => {
+  try {
+    const original = await Page.findById(req.params.id);
+
+    if (!original) {
+      return res.status(404).json({
+        success: false,
+        message: "Page not found",
+      });
+    }
+
+    const copy = await Page.create({
+      ...original.toObject(),
+      _id: undefined,
+      slug: `${original.slug}-copy-${Date.now()}`,
+      title: `${original.title} (Copy)`,
+      status: "draft",
+      views: 0,
+    });
 
     res.status(201).json({
       success: true,
-      message: "Blog duplicated successfully",
-      data: duplicate,
+      message: "Page duplicated",
+      data: copy,
     });
   } catch (error) {
-    console.error("Duplicate Blog Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 };
-
-// ========================================
-// GET RELATED POSTS
-// Based on Category and Tags
-// ========================================
-export const getRelatedPosts = async (req, res) => {
-  try {
-    const currentPost = await Page.findById(req.params.id)
-      .select("category tags");
-    
-    if (!currentPost) {
-      return res.status(404).json({
-        success: false,
-        message: "Post not found",
-      });
-    }
-    
-    // Find posts with same category or shared tags
-    const relatedPosts = await Page.find({
-      _id: { $ne: currentPost._id },
-      status: "published",
-      $or: [
-        { category: currentPost.category },
-        { tags: { $in: currentPost.tags } },
-      ],
-    })
-      .populate('category', 'name slug color')
-      .populate('tags', 'name slug')
-      .select("title slug featuredImage publishedAt views category tags")
-      .sort({ publishedAt: -1 })
-      .limit(5);
-    
-    res.json({
-      success: true,
-      count: relatedPosts.length,
-      data: relatedPosts,
-    });
-  } catch (error) {
-    console.error("Get Related Posts Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ========================================
-// SCHEDULE POST FOR FUTURE PUBLISHING
-// ========================================
-export const schedulePage = async (req, res) => {
-  try {
-    const { scheduledAt } = req.body;
-    
-    if (!scheduledAt) {
-      return res.status(400).json({
-        success: false,
-        message: "Scheduled date and time is required",
-      });
-    }
-
-    const scheduledDate = new Date(scheduledAt);
-    
-    // Validate future date
-    if (scheduledDate <= new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: "Scheduled date must be in the future",
-      });
-    }
-
-    const page = await Page.findByIdAndUpdate(
-      req.params.id,
-      { 
-        scheduledAt: scheduledDate,
-        status: "draft" // Keep as draft until scheduled time
-      },
-      { new: true }
-    )
-      .populate('category', 'name slug')
-      .populate('tags', 'name slug');
-
-    if (!page) {
-      return res.status(404).json({
-        success: false,
-        message: "Blog not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: `Blog scheduled for ${scheduledDate.toLocaleString()}`,
-      data: page,
-    });
-  } catch (error) {
-    console.error("Schedule Blog Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-// ========================================
-// BULK DELETE BLOGS
-// ========================================
 export const bulkDeletePages = async (req, res) => {
   try {
     const { ids } = req.body;
 
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Please provide valid blog IDs",
+        message: "Please provide an array of page IDs",
       });
     }
 
-    const result = await Page.deleteMany({ _id: { $in: ids } });
+    const result = await Page.deleteMany({
+      _id: { $in: ids },
+    });
 
     res.json({
       success: true,
-      message: `${result.deletedCount} blogs deleted successfully`,
-      data: { deletedCount: result.deletedCount },
+      message: `${result.deletedCount} pages deleted successfully`,
     });
   } catch (error) {
     console.error("Bulk Delete Error:", error);
@@ -655,45 +441,176 @@ export const bulkDeletePages = async (req, res) => {
   }
 };
 
-// ========================================
-// GET POPULAR POSTS (MOST VIEWED)
-// ========================================
-export const getPopularPosts = async (req, res) => {
-  try {
-    const { limit = 5 } = req.query;
 
-    const popularPosts = await Page.getPopularPosts(parseInt(limit));
+
+
+// ========================================
+// SCHEDULE PAGE (FUTURE PUBLISH)
+// ========================================
+export const schedulePage = async (req, res) => {
+  try {
+    const { scheduledAt } = req.body;
+
+    if (!scheduledAt) {
+      return res.status(400).json({
+        success: false,
+        message: "scheduledAt is required",
+      });
+    }
+
+    const scheduleDate = new Date(scheduledAt);
+
+    if (scheduleDate <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Scheduled date must be in the future",
+      });
+    }
+
+    const page = await Page.findByIdAndUpdate(
+      req.params.id,
+      {
+        scheduledAt: scheduleDate,
+        status: "draft",
+      },
+      { new: true }
+    );
+
+    if (!page) {
+      return res.status(404).json({
+        success: false,
+        message: "Page not found",
+      });
+    }
 
     res.json({
       success: true,
-      count: popularPosts.length,
-      data: popularPosts,
+      message: "Page scheduled successfully",
+      data: page,
     });
   } catch (error) {
-    console.error("Get Popular Posts Error:", error);
+    console.error("Schedule Page Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 };
-
-// ========================================
-// GET RECENT POSTS
-// ========================================
-export const getRecentPosts = async (req, res) => {
+export const getPopularPosts = async (req, res) => {
   try {
-    const { limit = 5 } = req.query;
-
-    const recentPosts = await Page.getRecentPosts(parseInt(limit));
+    const limit = Number(req.query.limit) || 5;
+    const posts = await Page.find({ status: "published" })
+      .sort({ views: -1 })
+      .limit(limit);
 
     res.json({
       success: true,
-      count: recentPosts.length,
-      data: recentPosts,
+      data: posts,
     });
   } catch (error) {
-    console.error("Get Recent Posts Error:", error);
+    res.status(500).json({
+      success: false,
+      data: [],
+      message: error.message,
+    });
+  }
+};
+export const getRecentPosts = async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 5;
+    const posts = await Page.find({ status: "published" })
+      .sort({ publishedAt: -1 })
+      .limit(limit);
+
+    res.json({
+      success: true,
+      data: posts,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      data: [],
+      message: error.message,
+    });
+  }
+};
+export const getAdminPostsGrid = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 9,
+      status = "all",
+      search = "",
+    } = req.query;
+
+    const filter = {};
+
+    if (status !== "all") {
+      filter.status = status;
+    }
+
+    if (search) {
+      filter.title = { $regex: search, $options: "i" };
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    // 🔥 MAIN QUERY (lean = NO virtual crash)
+    const posts = await Page.find(filter)
+      .select(
+        "title slug featuredImage status views createdAt updatedAt publishedAt"
+      )
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean();
+
+    // 🔥 Attach counts safely
+    const postIds = posts.map(p => p._id);
+
+    const [likes, comments, favourites] = await Promise.all([
+      Like.aggregate([
+        { $match: { post: { $in: postIds } } },
+        { $group: { _id: "$post", count: { $sum: 1 } } },
+      ]),
+      Comment.aggregate([
+        { $match: { post: { $in: postIds }, isDeleted: false } },
+        { $group: { _id: "$post", count: { $sum: 1 } } },
+      ]),
+      Favourite.aggregate([
+        { $match: { page: { $in: postIds } } },
+        { $group: { _id: "$page", count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const mapCount = (arr) =>
+      arr.reduce((acc, i) => {
+        acc[i._id.toString()] = i.count;
+        return acc;
+      }, {});
+
+    const likeMap = mapCount(likes);
+    const commentMap = mapCount(comments);
+    const favMap = mapCount(favourites);
+
+    const data = posts.map(post => ({
+      ...post,
+      likesCount: likeMap[post._id] || 0,
+      commentsCount: commentMap[post._id] || 0,
+      favouritesCount: favMap[post._id] || 0,
+    }));
+
+    const total = await Page.countDocuments(filter);
+
+    res.json({
+      success: true,
+      page: Number(page),
+      total,
+      totalPages: Math.ceil(total / limit),
+      data,
+    });
+  } catch (error) {
+    console.error("Admin Posts Grid Error:", error);
     res.status(500).json({
       success: false,
       message: error.message,

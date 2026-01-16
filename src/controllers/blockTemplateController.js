@@ -1,179 +1,245 @@
-// ========================================
-// FILE: src/controllers/blockTemplateController.js
-// ========================================
+import BlockTemplate from "../models/blockTemplate.js";
 
-/**
- * GET ALL BLOCK TEMPLATES
- * Categorized for the Frontend Sidebar
- */
-export const getBlockTemplates = async (req, res) => {
-  const templates = {
-    basic: {
-      label: "Basic Content",
-      blocks: {
-        heading: {
-          label: "Heading",
-          icon: "Heading",
-          type: "heading",
-          props: { headingLevel: "h2", headingText: "Your Heading Here" },
-          styles: { fontSize: "32px", fontWeight: "700", marginBottom: "16px", color: "#000000", textAlign: "left" },
-        },
-        paragraph: {
-          label: "Paragraph",
-          icon: "Type",
-          type: "paragraph",
-          props: { content: "<p>Start writing your amazing story here...</p>" },
-          styles: { fontSize: "16px", lineHeight: "1.6", color: "#333333", marginBottom: "16px" },
-        },
-        quote: {
-          label: "Blockquote",
-          icon: "Quote",
-          type: "quote",
-          props: { quoteText: "Logic will get you from A to B. Imagination will take you everywhere.", quoteAuthor: "Albert Einstein" },
-          styles: { fontSize: "20px", fontStyle: "italic", borderLeft: "4px solid #3b82f6", paddingLeft: "20px", marginBottom: "24px", color: "#555555" },
-        },
-        list: {
-          label: "List",
-          icon: "List",
-          type: "list",
-          props: { listType: "unordered", listItems: ["First point", "Second point", "Third point"] },
-          styles: { marginBottom: "16px", paddingLeft: "20px" },
-        },
-      }
-    },
+/* =====================================================
+   HELPERS
+===================================================== */
+const buildSlug = (text) =>
+  text
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 
-    media: {
-      label: "Media & Visuals",
-      blocks: {
-        image: {
-          label: "Image",
-          icon: "Image",
-          type: "image",
-          props: { src: "https://via.placeholder.com/800x450?text=Upload+Image", alt: "Placeholder", caption: "", objectFit: "cover" },
-          styles: { width: "100%", borderRadius: "8px", marginBottom: "16px" },
-        },
-        video: {
-          label: "Video",
-          icon: "Video",
-          type: "video",
-          props: { videoUrl: "", videoType: "youtube", autoplay: false, controls: true },
-          styles: { width: "100%", aspectRatio: "16/9", marginBottom: "16px" },
-        },
-        gallery: {
-          label: "Gallery",
-          icon: "LayoutGrid",
-          type: "gallery",
-          props: { images: [], galleryLayout: "grid", columns: 3 },
-          styles: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "24px" },
-        },
-      }
-    },
+/* =====================================================
+   GET ALL BLOCK TEMPLATES (PUBLIC – BUILDER SIDEBAR)
+   Supports:
+   ?category=content
+   ?type=heading
+   ?search=text
+   ?page=1&limit=50
+===================================================== */
+export const getAllBlockTemplates = async (req, res) => {
+  try {
+    const {
+      category,
+      type,
+      search,
+      page = 1,
+      limit = 50,
+    } = req.query;
 
-    layout: {
-      label: "Structure & Layout",
-      blocks: {
-        columns: {
-          label: "Columns",
-          icon: "Columns",
-          type: "columns",
-          props: { columnCount: 2, columnGap: "24px", columns: [{ content: [] }, { content: [] }] },
-          styles: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" },
-        },
-        spacer: {
-          label: "Spacer",
-          icon: "MoveVertical",
-          type: "spacer",
-          props: { spacerHeight: "40px" },
-          styles: { height: "40px" },
-        },
-        divider: {
-          label: "Divider",
-          icon: "Minus",
-          type: "divider",
-          props: { dividerStyle: "solid", dividerWidth: "100%" },
-          styles: { borderTop: "1px solid #e5e7eb", margin: "24px 0" },
-        },
-        container: {
-          label: "Container",
-          icon: "Box",
-          type: "container",
-          props: { children: [] },
-          styles: { padding: "40px", backgroundColor: "transparent", maxWidth: "1200px", margin: "0 auto" }
-        }
-      }
-    },
+    const filter = { isActive: true };
 
-    interactive: {
-      label: "Interactive",
-      blocks: {
-        button: {
-          label: "Button",
-          icon: "MousePointer2",
-          type: "button",
-          props: { buttonText: "Learn More", buttonUrl: "#", buttonVariant: "primary" },
-          styles: { backgroundColor: "#3b82f6", color: "#ffffff", padding: "12px 24px", borderRadius: "8px", fontWeight: "600" },
-        },
-        accordion: {
-          label: "Accordion",
-          icon: "ChevronDown",
-          type: "accordion",
-          props: { accordionItems: [{ title: "What is this?", content: "This is a FAQ item." }] },
-          styles: { marginBottom: "24px" },
-        },
-      }
-    },
+    if (category) filter.category = category;
+    if (type) filter.type = type;
 
-    advanced: {
-      label: "Advanced Widgets",
-      blocks: {
-        hero: {
-          label: "Hero Section",
-          icon: "PanelTop",
-          type: "hero",
-          props: { imageUrl: "https://via.placeholder.com/1920x1080", heading: "Big Ideas Start Here", description: "Design your blog with ease." },
-          styles: { minHeight: "500px", padding: "100px 20px", backgroundSize: "cover", color: "#ffffff" },
-        },
-        pricing: {
-          label: "Pricing Table",
-          icon: "CreditCard",
-          type: "pricing",
-          props: { pricingTitle: "Pro Plan", price: "19", features: ["Unlimited Posts", "Custom Domain"] },
-          styles: { border: "1px solid #ddd", borderRadius: "12px", padding: "40px", textAlign: "center" },
-        },
-        testimonial: {
-          label: "Testimonial",
-          icon: "UserCheck",
-          type: "testimonial",
-          props: { testimonialText: "Best builder ever!", testimonialAuthor: "Sarah Jenkins" },
-          styles: { padding: "30px", backgroundColor: "#f3f4f6", borderRadius: "12px" },
-        }
-      }
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { tags: { $in: [new RegExp(search, "i")] } },
+      ];
     }
-  };
 
-  res.json({
-    success: true,
-    message: "Block templates retrieved successfully",
-    data: templates,
-  });
+    const skip = (page - 1) * limit;
+
+    const templates = await BlockTemplate.find(filter)
+      .sort({ category: 1, createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .select("-__v");
+
+    const total = await BlockTemplate.countDocuments(filter);
+
+    res.json({
+      success: true,
+      count: templates.length,
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / limit),
+      data: templates,
+    });
+  } catch (error) {
+    console.error("Get All Block Templates Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 };
 
-/**
- * GET SINGLE BLOCK TEMPLATE BY TYPE
- */
-export const getBlockTemplate = async (req, res) => {
-  const { type } = req.params;
-  
-  // Logic to find the block within the categories
-  let foundBlock = null;
-  const categories = {
-    // We call the object structure again or store it in a constant outside functions
-  };
+/* =====================================================
+   GET SINGLE BLOCK TEMPLATE (BY SLUG)
+===================================================== */
+export const getBlockTemplateBySlug = async (req, res) => {
+  try {
+    const template = await BlockTemplate.findOne({
+      slug: req.params.slug,
+      isActive: true,
+    }).select("-__v");
 
-  // Simplified lookup for the controller
-  res.json({
-    success: true,
-    message: "Endpoint to fetch specific block data",
-    note: "Use the getBlockTemplates for the full library"
-  });
+    if (!template) {
+      return res.status(404).json({
+        success: false,
+        message: "Block template not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: template,
+    });
+  } catch (error) {
+    console.error("Get Block Template Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/* =====================================================
+   CREATE BLOCK TEMPLATE (ADMIN)
+===================================================== */
+export const createBlockTemplate = async (req, res) => {
+  try {
+    const {
+      name,
+      slug,
+      type,
+      category,
+      structure,
+      controls,
+      description,
+      previewImage,
+      tags,
+      isSystem = false,
+    } = req.body;
+
+    if (!name || !type || !structure) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, type and structure are required",
+      });
+    }
+
+    const finalSlug = slug ? buildSlug(slug) : buildSlug(name);
+
+    const exists = await BlockTemplate.exists({ slug: finalSlug });
+    if (exists) {
+      return res.status(409).json({
+        success: false,
+        message: "Block template with same slug already exists",
+      });
+    }
+
+    const template = await BlockTemplate.create({
+      name,
+      slug: finalSlug,
+      type,
+      category,
+      structure,
+      controls: controls || {},
+      description,
+      previewImage,
+      tags: tags || [],
+      isSystem,
+      createdBy: req.user.userId,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Block template created successfully",
+      data: template,
+    });
+  } catch (error) {
+    console.error("Create Block Template Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/* =====================================================
+   UPDATE BLOCK TEMPLATE (ADMIN)
+===================================================== */
+export const updateBlockTemplate = async (req, res) => {
+  try {
+    const template = await BlockTemplate.findById(req.params.id);
+
+    if (!template) {
+      return res.status(404).json({
+        success: false,
+        message: "Block template not found",
+      });
+    }
+
+    if (template.isSystem && req.body.isSystem === false) {
+      return res.status(403).json({
+        success: false,
+        message: "System templates cannot be modified",
+      });
+    }
+
+    if (req.body.slug) {
+      req.body.slug = buildSlug(req.body.slug);
+    }
+
+    // 🔥 Version bump
+    template.version += 1;
+
+    Object.assign(template, req.body);
+    await template.save();
+
+    res.json({
+      success: true,
+      message: "Block template updated successfully",
+      data: template,
+    });
+  } catch (error) {
+    console.error("Update Block Template Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+/* =====================================================
+   DELETE BLOCK TEMPLATE (ADMIN)
+   (SOFT DELETE)
+===================================================== */
+export const deleteBlockTemplate = async (req, res) => {
+  try {
+    const template = await BlockTemplate.findById(req.params.id);
+
+    if (!template) {
+      return res.status(404).json({
+        success: false,
+        message: "Block template not found",
+      });
+    }
+
+    if (template.isSystem) {
+      return res.status(403).json({
+        success: false,
+        message: "System templates cannot be deleted",
+      });
+    }
+
+    template.isActive = false;
+    await template.save();
+
+    res.json({
+      success: true,
+      message: "Block template deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete Block Template Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 };

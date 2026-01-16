@@ -1,55 +1,77 @@
 // ========================================
 // FILE: src/server.js
-// Server Entry Point
+// Server Entry Point (Production Ready)
 // ========================================
 
 import dotenv from "dotenv";
-// Load environment variables first
 dotenv.config();
 
 import app from "./app.js";
 import connectDB from "./config/db.js";
 import { startScheduler } from "./utils/scheduler.js";
 import User from "./models/user.js";
+import mongoose from "mongoose";
 
 // ========================================
-// CONNECT TO MONGODB & INITIALIZE
+// ENV VALIDATION (SAFE)
 // ========================================
-connectDB()
-  .then(async () => {
-    // Start post scheduler
-    startScheduler();
+if (!process.env.MONGO_URI) {
+  console.error("❌ MONGO_URI missing in .env");
+  process.exit(1);
+}
 
-    // 🔥 INITIAL ADMIN SEEDING
-    try {
-      const adminExists = await User.findOne({ role: "admin" });
+if (!process.env.JWT_SECRET) {
+  console.error("❌ JWT_SECRET missing in .env");
+  process.exit(1);
+}
 
-      if (!adminExists) {
-        console.log("🛠️  No admin found. Creating initial master admin...");
+// ========================================
+// CONNECT TO DB & INITIALIZE
+// ========================================
+const bootstrap = async () => {
+  try {
+    // 🔌 MongoDB
+    await connectDB();
+
+    // ⏰ Scheduler
+    if (typeof startScheduler === "function") {
+      startScheduler();
+      console.log("⏰ Scheduler started");
+    }
+
+    // 👑 ADMIN SEEDING
+    const adminExists = await User.findOne({ role: "admin" });
+
+    if (!adminExists) {
+      if (!process.env.EMAIL_USER || !process.env.ADMIN_INITIAL_PASSWORD) {
+        console.warn("⚠️ Admin env missing. Skipping admin seed.");
+      } else {
+        console.log("🛠️ Creating master admin...");
 
         await User.create({
           name: "Master Admin",
           email: process.env.EMAIL_USER,
-          password: "admin123", // change after first login
+          password: process.env.ADMIN_INITIAL_PASSWORD,
           role: "admin",
           isActive: true,
         });
 
-        console.log("✅ Master Admin created successfully!");
-        console.log("📧 Admin Email:", process.env.EMAIL_USER);
-        console.log("🔑 Initial Password: admin123");
+        console.log("✅ Master Admin created");
+        console.log("📧 Email:", process.env.EMAIL_USER);
+        console.log("🔑 Password:", process.env.ADMIN_INITIAL_PASSWORD);
+        console.log("⚠️ CHANGE PASSWORD AFTER FIRST LOGIN");
       }
-    } catch (seedError) {
-      console.error("❌ Admin seeding failed:", seedError);
     }
-  })
-  .catch((error) => {
-    console.error("❌ Failed to connect to MongoDB:", error);
+  } catch (error) {
+    console.error("❌ Bootstrap failed:", error);
     process.exit(1);
-  });
+  }
+};
+
+await bootstrap();
 
 // ========================================
-// SERVER CONFIGURATION
+// SERVER CONFIG
 // ========================================
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -61,55 +83,41 @@ const server = app.listen(PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║    🚀 Blog Builder API Server                             ║
+║   🚀 Blog Builder API Server                               ║
 ║                                                           ║
-║    Environment: ${NODE_ENV.toUpperCase().padEnd(43)}║
-║    Port: ${PORT.toString().padEnd(48)}║
-║    URL: http://localhost:${PORT.toString().padEnd(34)}║
+║   Environment : ${NODE_ENV.toUpperCase().padEnd(42)}║
+║   Port        : ${PORT.toString().padEnd(42)}║
+║   URL         : http://localhost:${PORT.toString().padEnd(27)}║
 ║                                                           ║
-║    📚 Documentation: http://localhost:${PORT}/             ║
-║    ❤️  Health Check: http://localhost:${PORT}/health       ║
+║   ❤️  Health     : /health                                 ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
-  `);
-
-  console.log("📡 Server is ready to accept connections");
-  console.log("⏰ Current time:", new Date().toLocaleString());
+`);
 });
 
 // ========================================
-// GRACEFUL SHUTDOWN HANDLERS (Mongoose v7+)
+// GRACEFUL SHUTDOWN
 // ========================================
-
 const shutdown = async (signal) => {
-  console.log(`\n⚠️  ${signal} received. Shutting down gracefully...`);
+  console.log(`\n⚠️ ${signal} received. Shutting down...`);
 
   try {
-    // Stop accepting new connections
     server.close(async () => {
-      const mongoose = (await import("mongoose")).default;
-
       await mongoose.connection.close();
-      console.log("✅ MongoDB connection closed");
-
+      console.log("✅ MongoDB disconnected");
       process.exit(0);
     });
   } catch (err) {
-    console.error("❌ Error during shutdown:", err);
+    console.error("❌ Shutdown error:", err);
     process.exit(1);
   }
 };
 
-// Handle kill signals from Render / Docker / PM2
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-// ========================================
-// GLOBAL ERROR HANDLERS
-// ========================================
-
 process.on("unhandledRejection", (err) => {
-  console.error("❌ Unhandled Promise Rejection:", err);
+  console.error("❌ Unhandled Rejection:", err);
   shutdown("unhandledRejection");
 });
 

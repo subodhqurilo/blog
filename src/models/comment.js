@@ -2,57 +2,80 @@ import mongoose from "mongoose";
 
 const CommentSchema = new mongoose.Schema(
   {
+    // Kis blog/post par comment hai
     post: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Page",
       required: true,
-      index: true
+      index: true,
     },
+
+    // Comment kisne kiya (User ya Admin)
     author: {
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null, // guest ke liye null
+      },
       name: {
         type: String,
         required: true,
-        trim: true
+        trim: true,
       },
       email: {
         type: String,
         required: true,
         lowercase: true,
-        trim: true
+        trim: true,
       },
-      website: {
+      role: {
         type: String,
-        trim: true
+        enum: ["admin", "user", "guest"],
+        default: "user",
       },
     },
+
+    // Comment ka actual text
     content: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
+      maxlength: 2000,
     },
-    status: {
-      type: String,
-      enum: ["pending", "approved", "spam"],
-      default: "pending",
-      index: true
-    },
+
+    // Reply system (nested comments)
     parentComment: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Comment",
       default: null,
     },
-    likes: {
-      type: Number,
-      default: 0,
+
+    // Soft delete (better than hard delete)
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    // Edit tracking
+    isEdited: {
+      type: Boolean,
+      default: false,
+    },
+
+    editedAt: {
+      type: Date,
+      default: null,
     },
   },
-  { 
-    timestamps: true 
+  {
+    timestamps: true, // createdAt, updatedAt
   }
 );
 
-// Compound index for efficient queries
-CommentSchema.index({ post: 1, status: 1 });
+// Indexes for fast queries
+CommentSchema.index({ post: 1, createdAt: 1 });
+CommentSchema.index({ "author.userId": 1 });
 CommentSchema.index({ parentComment: 1 });
 
 export default mongoose.model("Comment", CommentSchema);
