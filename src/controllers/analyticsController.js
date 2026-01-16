@@ -47,11 +47,11 @@ export const getDashboardStats = async (req, res) => {
       success: true,
       data: {
         totalPosts,
-        publishedPosts,
-        draftPosts,
+        // publishedPosts,
+        // draftPosts,
         totalViews: totalViewsAgg[0]?.total || 0,
         totalComments,
-        totalLikes,
+        // totalLikes,
         totalEnquiry, // ✅ ADDED
       },
     });
@@ -204,21 +204,21 @@ export const getRecentActivity = async (req, res) => {
 
     likes.forEach(() =>
       activity.push({
-        type: "like",
+        // type: "like",
         message: "New like on your blog",
       })
     );
 
     comments.forEach(c =>
       activity.push({
-        type: "comment",
+        // type: "comment",
         message: `${c.name || "Someone"} commented on your blog`,
       })
     );
 
     inquiries.forEach(() =>
       activity.push({
-        type: "inquiry",
+        // type: "inquiry",
         message: "You have a new enquiry",
       })
     );
@@ -266,7 +266,7 @@ export const getEngagementAnalytics = async (req, res) => {
         labels: months,
         like: format(likesAgg),
         comment: format(commentsAgg),
-        inquiry: format(inquiryAgg),
+        enquiry: format(inquiryAgg),
       },
     });
   } catch (error) {

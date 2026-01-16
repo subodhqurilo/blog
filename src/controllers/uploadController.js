@@ -27,11 +27,12 @@ const fileFilter = (_, file, cb) => {
   }
 };
 
+/* 🔥 FIX HERE */
 export const uploadSingle = multer({
   storage,
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 },
-}).single("file");
+}).single("avatar"); // ✅ file → avatar
 
 export const uploadMultiple = multer({
   storage,

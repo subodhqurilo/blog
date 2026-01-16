@@ -17,17 +17,6 @@ export const createInquiry = async (req, res) => {
       });
     }
 
-    // Optional page validation
-    if (page) {
-      const exists = await Page.exists({ _id: page });
-      if (!exists) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid page reference",
-        });
-      }
-    }
-
     const inquiry = await Inquiry.create({
       name,
       email,
@@ -41,13 +30,10 @@ export const createInquiry = async (req, res) => {
       data: inquiry,
     });
   } catch (error) {
-    console.error("Create Inquiry Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 /**
  * =====================================================
@@ -57,32 +43,30 @@ export const createInquiry = async (req, res) => {
 export const getAllInquiries = async (req, res) => {
   try {
     const {
-      status,
       search,
+      status,
       page = 1,
-      limit = 20,
-      sortBy = "createdAt",
-      order = "desc",
+      limit = 10,
     } = req.query;
 
     const filter = {};
-    if (status) filter.status = status;
+
+    if (status && status !== "all") {
+      filter.status = status;
+    }
 
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { message: { $regex: search, $options: "i" } },
+        { name: new RegExp(search, "i") },
+        { email: new RegExp(search, "i") },
+        { message: new RegExp(search, "i") },
       ];
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
-    const sortOrder = order === "asc" ? 1 : -1;
-
     const inquiries = await Inquiry.find(filter)
-      .populate("page", "title slug") // ✅ FIX
-      .sort({ [sortBy]: sortOrder })
-      .skip(skip)
+      .populate("page", "title slug")
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
       .limit(Number(limit))
       .lean();
 
@@ -90,21 +74,29 @@ export const getAllInquiries = async (req, res) => {
 
     res.json({
       success: true,
-      count: inquiries.length,
       total,
       page: Number(page),
-      limit: Number(limit),
-      totalPages: Math.ceil(total / Number(limit)),
-      data: inquiries,
+      totalPages: Math.ceil(total / limit),
+      data: inquiries.map((i) => ({
+        id: i._id,
+        name: i.name,
+        email: i.email,
+        message: i.message,
+        blog: i.page
+          ? { title: i.page.title, }
+          : null,
+        status: i.status,
+        date: i.createdAt,
+      })),
     });
   } catch (error) {
-    console.error("Get Inquiries Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
+
+
 
 /**
  * =====================================================
@@ -112,35 +104,45 @@ export const getAllInquiries = async (req, res) => {
  * =====================================================
  */
 export const getInquiryById = async (req, res) => {
-  try {
-    const inquiry = await Inquiry.findById(req.params.id)
-      .populate("page", "title slug") // ✅ FIX
-      .lean();
+  const inquiry = await Inquiry.findById(req.params.id)
+    .populate("page", "title slug")
+    .lean();
 
-    if (!inquiry) {
-      return res.status(404).json({
-        success: false,
-        message: "Inquiry not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: inquiry,
-    });
-  } catch (error) {
-    console.error("Get Inquiry Error:", error);
-    res.status(500).json({
+  if (!inquiry) {
+    return res.status(404).json({
       success: false,
-      message: error.message,
+      message: "Inquiry not found",
     });
   }
+
+  res.json({
+    success: true,
+    data: {
+      id: inquiry._id,
+      name: inquiry.name,
+      email: inquiry.email,
+      initials: inquiry.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase(),
+      blog: inquiry.page
+        ? { title: inquiry.page.title, slug: inquiry.page.slug }
+        : null,
+      message: inquiry.message,
+      date: inquiry.createdAt,
+      status: inquiry.status,
+      replyMail: `mailto:${inquiry.email}`,
+    },
+  });
 };
 
+
+
 /**
- * =====================================================
- * MARK INQUIRY AS READ
- * =====================================================
+ * =========================================
+ * MARK AS READ (ON CLICK)
+ * =========================================
  */
 export const markInquiryAsRead = async (req, res) => {
   try {
@@ -148,7 +150,7 @@ export const markInquiryAsRead = async (req, res) => {
       req.params.id,
       { status: "read" },
       { new: true }
-    ).lean();
+    );
 
     if (!inquiry) {
       return res.status(404).json({
@@ -159,18 +161,37 @@ export const markInquiryAsRead = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Inquiry marked as read",
-      data: inquiry,
+      message: "Marked as read",
     });
   } catch (error) {
-    console.error("Mark Inquiry Read Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
+/**
+ * =========================================
+ * DELETE INQUIRY
+ * =========================================
+ */
+export const deleteInquiry = async (req, res) => {
+  try {
+    const inquiry = await Inquiry.findByIdAndDelete(req.params.id);
+
+    if (!inquiry) {
+      return res.status(404).json({
+        success: false,
+        message: "Inquiry not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Inquiry deleted",
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 /**
  * =====================================================
  * MARK INQUIRY AS REPLIED
@@ -209,34 +230,7 @@ export const markInquiryReplied = async (req, res) => {
   }
 };
 
-/**
- * =====================================================
- * DELETE INQUIRY
- * =====================================================
- */
-export const deleteInquiry = async (req, res) => {
-  try {
-    const inquiry = await Inquiry.findByIdAndDelete(req.params.id);
 
-    if (!inquiry) {
-      return res.status(404).json({
-        success: false,
-        message: "Inquiry not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Inquiry deleted successfully",
-    });
-  } catch (error) {
-    console.error("Delete Inquiry Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
 
 /**
  * =====================================================

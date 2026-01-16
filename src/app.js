@@ -25,6 +25,7 @@ import likeRoutes from "./routes/likeRoutes.js";
 import inquiryRoutes from "./routes/inquiryRoutes.js";
 import pageVersionRoutes from "./routes/pageVersionRoutes.js";
 import favouriteRoutes from "./routes/favouriteRoutes.js";
+import settingsRoutes from "./routes/settingsRoutes.js";
 
 // ES modules __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -104,6 +105,8 @@ app.use(express.static(path.join(__dirname, "public")));
 // API ROUTES
 // ========================================
 app.use("/api/auth", authRoutes);
+app.use("/api/settings", settingsRoutes);
+
 app.use("/api/pages", pageRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/comments", commentRoutes);
